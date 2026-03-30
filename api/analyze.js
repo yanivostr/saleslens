@@ -8,7 +8,7 @@ export default async function handler(req, res) {
     const { transcript } = req.body;
     if (!transcript) return res.status(400).json({ error: 'Missing transcript' });
 
-    const prompt = `אתה מומחה לניתוח שיחות מכירה בעברית. נתח את שיחת המכירה הבאה ותחזיר JSON בלבד (ללא markdown, ללא backticks).
+    const prompt = `אתה מומחה לניתוח שיחות מכירה בעברית. נתח את שיחת המכירה הבאה ותחזיר JSON בלבד:
 
 שיחת המכירה:
 """
@@ -26,13 +26,13 @@ ${transcript}
     "solution_presentation": <0-10>,
     "closing": <0-10>
   },
-  "pros": [<3-5 נקודות חיוביות, כל אחת משפט קצר>],
-  "cons": [<3-5 נקודות לשיפור, כל אחת משפט קצר>],
+  "pros": [<3-5 נקודות חיוביות>],
+  "cons": [<3-5 נקודות לשיפור>],
   "key_moments": [
-    {"type": "positive" או "negative", "label": "<שם הרגע>", "description": "<תיאור קצר מה קרה>"}
+    {"type": "positive" או "negative", "label": "<שם הרגע>", "description": "<תיאור קצר>"}
   ],
   "tips": [
-    {"title": "<כותרת הטיפ>", "body": "<הסבר מעשי לשיפור>"}
+    {"title": "<כותרת הטיפ>", "body": "<הסבר מעשי>"}
   ]
 }`;
 
