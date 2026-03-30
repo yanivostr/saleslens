@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BIG Call Analytics – ניתוח שיחות מכירה</title>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --bg: #080810;
+  --bg2: #0d0d1a;
+  --surface: #111120;
+  --surface2: #181828;
+  --surface3: #1e1e32;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --accent: #7c6dfa;
+  --accent-light: #a599ff;
+  --green: #22d3a5;
+  --red: #f25c7a;
+  --yellow: #f5c842;
+  --text: #f0f0fa;
+  --text2: #9090b0;
+  --text3: #5a5a7a;
+  --mono: 'IBM Plex Mono', monospace;
+  --radius: 16px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Heebo', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* NOISE TEXTURE */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.4;
+}
+
+/* GLOW ORBS */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.15;
+}
+.orb-1 { width: 600px; height: 600px; background: var(--accent); top: -200px; right: -200px; animation: orbFloat 12s ease-in-out infinite alternate; }
+.orb-2 { width: 400px; height: 400px; background: var(--green); bottom: -100px; left: -100px; animation: orbFloat 16s ease-in-out infinite alternate-reverse; }
+.orb-3 { width: 300px; height: 300px; background: var(--red); top: 40%; left: 50%; animation: orbFloat 10s ease-in-out infinite alternate; }
+@keyframes orbFloat { from { transform: translate(0,0) scale(1); } to { transform: translate(30px,20px) scale(1.1); } }
+
+.wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* ═══ HEADER ═══ */
+.header {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  background: rgba(8,8,16,0.85);
+  backdrop-filter: blur(20px);
+  z-index: 100;
+}
+.header-inner { max-width: 880px; margin: 0 auto; padding: 0 24px; width: 100%; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 12px; cursor: pointer; text-decoration: none; }
+.brand-mark {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), #c084fc);
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 0 24px rgba(124,109,250,0.4);
+}
+.brand-name { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+.brand-name strong { color: var(--accent-light); }
+.brand-by { font-size: 10px; color: var(--text3); font-family: var(--mono); letter-spacing: 1px; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.chip {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 100px;
+  padding: 6px 14px;
+  font-size: 13px;
+  color: var(--text2);
+}
+.chip-avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--green));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: white;
+}
+.btn-sm {
+  padding: 7px 16px; border-radius: 8px; border: none;
+  font-family: 'Heebo', sans-serif; font-size: 13px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-outline { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.btn-outline:hover { color: var(--text); border-color: var(--accent); }
+
+/* ═══ LOGIN PAGE ═══ */
+#loginPage { display: none; min-height: calc(100vh - 77px); align-items: center; justify-content: center; }
+#loginPage.visible { display: flex; }
+.login-wrap { text-align: center; max-width: 480px; width: 100%; padding: 40px 20px; }
+.login-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(124,109,250,0.1);
+  border: 1px solid rgba(124,109,250,0.25);
+  border-radius: 100px;
+  padding: 6px 16px;
+  font-size: 12px; font-weight: 600; color: var(--accent-light);
+  font-family: var(--mono);
+  letter-spacing: 0.5px;
+  margin-bottom: 28px;
+}
+.login-title { font-size: 42px; font-weight: 900; line-height: 1.1; margin-bottom: 16px; letter-spacing: -1px; }
+.login-title em { font-style: normal; background: linear-gradient(135deg, var(--accent-light), var(--green)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.login-sub { color: var(--text2); font-size: 16px; margin-bottom: 36px; line-height: 1.7; }
+.login-card {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 24px;
+  padding: 32px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--green), transparent);
+}
+.btn-google {
+  width: 100%; padding: 14px 20px;
+  background: white; color: #1a1a2e;
+  border: none; border-radius: 12px;
+  font-family: 'Heebo', sans-serif; font-size: 15px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px;
+  transition: all 0.25s;
+  margin-bottom: 20px;
+}
+.btn-google:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0,0,0,0.4); }
+.login-feats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; text-align: right; }
+.login-feat {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px; color: var(--text2);
+}
+.login-feat-icon { font-size: 16px; }
+.login-bybr { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+
+/* ═══ APP PAGE ═══ */
+#appPage { display: none; padding-bottom: 60px; }
+#appPage.visible { display: block; }
+
+/* NAV PILLS */
+.nav-pills {
+  display: flex; gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  width: fit-content;
+  margin: 32px 0 28px;
+}
+.pill {
+  padding: 8px 20px; border-radius: 8px; border: none;
+  background: none; color: var(--text2);
+  font-family: 'Heebo', sans-serif; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s;
+}
+.pill.active { background: var(--accent); color: white; box-shadow: 0 4px 16px rgba(124,109,250,0.35); }
+
+/* UPLOAD ZONE */
+.drop-zone {
+  border: 1.5px dashed var(--border2);
+  border-radius: var(--radius);
+  padding: 52px 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.drop-zone::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 100%, rgba(124,109,250,0.06) 0%, transparent 70%);
+  opacity: 0; transition: opacity 0.3s;
+}
+.drop-zone:hover::before, .drop-zone.over::before { opacity: 1; }
+.drop-zone:hover, .drop-zone.over { border-color: var(--accent); }
+.drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.drop-icon {
+  width: 64px; height: 64px; margin: 0 auto 20px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  position: relative; z-index: 1;
+}
+.drop-title { font-size: 18px; font-weight: 700; margin-bottom: 6px; position: relative; z-index: 1; }
+.drop-sub { color: var(--text2); font-size: 13px; margin-bottom: 16px; position: relative; z-index: 1; }
+.format-chips { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; position: relative; z-index: 1; }
+.fmt { background: var(--surface3); border: 1px solid var(--border); border-radius: 6px; padding: 3px 10px; font-size: 11px; color: var(--text3); font-family: var(--mono); }
+.selected-file { margin-top: 14px; color: var(--green); font-weight: 600; font-size: 14px; position: relative; z-index: 1; }
+
+/* ANALYZE BTN */
+.btn-analyze {
+  width: 100%; padding: 17px;
+  background: linear-gradient(135deg, var(--accent) 0%, #a855f7 100%);
+  border: none; border-radius: 14px;
+  color: white; font-family: 'Heebo', sans-serif;
+  font-size: 17px; font-weight: 700; letter-spacing: 0.3px;
+  cursor: pointer; transition: all 0.3s;
+  margin-bottom: 24px;
+  position: relative; overflow: hidden;
+}
+.btn-analyze::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+}
+.btn-analyze:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 16px 48px rgba(124,109,250,0.45); }
+.btn-analyze:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+.spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-left: 8px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* PROGRESS */
+.progress-wrap { margin-bottom: 20px; display: none; }
+.progress-track { background: var(--surface3); border-radius: 100px; height: 4px; overflow: hidden; margin-bottom: 10px; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); border-radius: 100px; transition: width 0.6s ease; width: 0%; box-shadow: 0 0 12px rgba(124,109,250,0.6); }
+.progress-text { text-align: center; font-size: 13px; color: var(--text2); font-family: var(--mono); }
+
+/* ERROR */
+.err {
+  background: rgba(242,92,122,0.08);
+  border: 1px solid rgba(242,92,122,0.25);
+  border-radius: 12px; padding: 14px 18px;
+  color: var(--red); font-size: 13px; margin-bottom: 16px; display: none;
+}
+
+/* ═══ RESULTS ═══ */
+#results { display: none; }
+
+/* SCORE HERO */
+.score-hero {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 24px;
+  padding: 44px 32px;
+  margin-bottom: 20px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.score-hero::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--green), var(--red));
+}
+.score-hero-bg {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 0%, rgba(124,109,250,0.08) 0%, transparent 60%);
+}
+.score-ring { width: 164px; height: 164px; margin: 0 auto 24px; position: relative; z-index: 1; }
+.score-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.score-ring circle { fill: none; stroke-width: 8; }
+.ring-bg { stroke: var(--surface3); }
+.ring-fill { stroke-dasharray: 440; stroke-dashoffset: 440; transition: stroke-dashoffset 2.2s cubic-bezier(.4,0,.2,1); stroke-linecap: round; }
+.score-val {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  font-size: 52px; font-weight: 900; font-family: var(--mono); line-height: 1;
+}
+.score-grade { font-size: 22px; font-weight: 800; margin-bottom: 8px; position: relative; z-index: 1; }
+.score-desc { color: var(--text2); font-size: 15px; max-width: 440px; margin: 0 auto; position: relative; z-index: 1; }
+
+/* SUB SCORES */
+.sub-scores { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 20px; }
+@media(max-width:600px){ .sub-scores { grid-template-columns: repeat(2,1fr); } }
+.sub-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 14px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+.sub-card:hover { border-color: var(--border2); }
+.sub-icon { font-size: 20px; margin-bottom: 8px; }
+.sub-val { font-size: 26px; font-weight: 800; font-family: var(--mono); margin-bottom: 4px; }
+.sub-name { font-size: 11px; color: var(--text3); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* GRID */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+@media(max-width:600px){ .grid-2 { grid-template-columns: 1fr; } }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  margin-bottom: 16px;
+}
+.card-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text3);
+  margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+.card-title span { font-size: 14px; }
+
+/* LISTS */
+.plist { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.plist li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; line-height: 1.55; }
+.pdot {
+  width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; margin-top: 1px;
+}
+.pdot-green { background: rgba(34,211,165,0.12); color: var(--green); }
+.pdot-red { background: rgba(242,92,122,0.12); color: var(--red); }
+
+/* TIPS */
+.tip {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  font-size: 13px; line-height: 1.65;
+  border-right: 3px solid var(--accent);
+  position: relative;
+}
+.tip-title { font-weight: 700; color: var(--accent-light); margin-bottom: 4px; font-size: 13px; }
+
+/* MOMENTS */
+.moment {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  border-right: 3px solid;
+}
+.moment.positive { border-right-color: var(--green); }
+.moment.negative { border-right-color: var(--red); }
+.moment-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; font-family: var(--mono); }
+.moment.positive .moment-lbl { color: var(--green); }
+.moment.negative .moment-lbl { color: var(--red); }
+
+/* TRANSCRIPT */
+.transcript {
+  background: var(--surface2);
+  border-radius: 10px; padding: 18px;
+  font-size: 13px; line-height: 1.9;
+  max-height: 240px; overflow-y: auto;
+  color: var(--text2); white-space: pre-wrap;
+  font-family: var(--mono);
+  scrollbar-width: thin; scrollbar-color: var(--surface3) transparent;
+}
+
+/* RESET BTN */
+.btn-reset {
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  border-radius: 10px; padding: 11px 24px;
+  font-family: 'Heebo', sans-serif; font-size: 14px; font-weight: 600;
+  cursor: pointer; transition: all 0.2s; margin-top: 8px;
+}
+.btn-reset:hover { border-color: var(--accent); color: var(--accent-light); }
+
+/* ═══ HISTORY ═══ */
+.hist-empty { text-align: center; padding: 64px 20px; color: var(--text3); }
+.hist-empty-icon { font-size: 48px; margin-bottom: 16px; }
+.hist-grid { display: flex; flex-direction: column; gap: 10px; }
+.hist-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.hist-card:hover { border-color: var(--border2); background: var(--surface2); transform: translateX(-2px); }
+.hist-info { flex: 1; }
+.hist-name { font-weight: 700; font-size: 15px; margin-bottom: 3px; }
+.hist-date { font-size: 12px; color: var(--text3); font-family: var(--mono); }
+.hist-verdict { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.score-pill {
+  width: 52px; height: 52px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 800; font-family: var(--mono);
+}
+
+footer {
+  border-top: 1px solid var(--border);
+  padding: 28px 0;
+  text-align: center;
+  color: var(--text3);
+  font-size: 12px;
+  font-family: var(--mono);
+  position: relative; z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <a class="brand" onclick="goHome()">
+      <div class="brand-mark">📞</div>
+      <div>
+        <div class="brand-name"><strong>BIG</strong> Call Analytics</div>
+        <div class="brand-by">BY BYBR</div>
+      </div>
+    </a>
+    <div class="header-actions" id="headerActions"></div>
+  </div>
+</header>
+
+<!-- LOGIN -->
+<div id="loginPage">
+  <div class="wrap">
+    <div class="login-wrap">
+      <div class="login-eyebrow">⚡ מופעל על Claude AI + Whisper</div>
+      <h1 class="login-title">נתח שיחות מכירה<br>עם <em>בינה מלאכותית</em></h1>
+      <p class="login-sub">העלה הקלטה, קבל ניתוח מעמיק תוך שניות.<br>דירוגים, תובנות, והמלצות לשיפור בעברית.</p>
+      <div class="login-card">
+        <button class="btn-google" onclick="loginWithGoogle()">
+          <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          כניסה עם Google
+        </button>
+        <div class="login-feats">
+          <div class="login-feat"><span class="login-feat-icon">🎙️</span> תמלול עברית</div>
+          <div class="login-feat"><span class="login-feat-icon">🧠</span> ניתוח AI מעמיק</div>
+          <div class="login-feat"><span class="login-feat-icon">📊</span> היסטוריה מלאה</div>
+          <div class="login-feat"><span class="login-feat-icon">🔒</span> נתונים פרטיים</div>
+        </div>
+      </div>
+      <div class="login-bybr">מערכת ניתוח שיחות מאת BYBR</div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appPage">
+  <div class="wrap">
+
+    <div class="nav-pills">
+      <button class="pill active" onclick="showTab('analyze')">🔍 ניתוח חדש</button>
+      <button class="pill" onclick="showTab('history')">📋 היסטוריה</button>
+    </div>
+
+    <!-- ANALYZE -->
+    <div id="tabAnalyze">
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="audioFile" accept="audio/*,.mp3,.wav,.m4a,.ogg,.webm,.mp4"/>
+        <div class="drop-icon">🎙️</div>
+        <div class="drop-title">גרור קובץ אודיו לכאן</div>
+        <div class="drop-sub">או לחץ לבחירת קובץ</div>
+        <div class="format-chips">
+          <span class="fmt">MP3</span><span class="fmt">WAV</span><span class="fmt">M4A</span><span class="fmt">OGG</span><span class="fmt">WEBM</span>
+        </div>
+        <div class="selected-file" id="selFile"></div>
+      </div>
+
+      <div class="err" id="errBox"></div>
+      <button class="btn-analyze" id="analyzeBtn" onclick="startAnalysis()">🔍 נתח שיחת מכירה</button>
+
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-track"><div class="progress-bar" id="progBar"></div></div>
+        <div class="progress-text" id="progText"></div>
+      </div>
+
+      <div id="results">
+        <!-- SCORE -->
+        <div class="score-hero">
+          <div class="score-hero-bg"></div>
+          <div class="score-ring">
+            <svg viewBox="0 0 160 160">
+              <circle class="ring-bg" cx="80" cy="80" r="70"/>
+              <circle class="ring-fill" id="ringFill" cx="80" cy="80" r="70"/>
+            </svg>
+            <div class="score-val" id="scoreVal">–</div>
+          </div>
+          <div class="score-grade" id="scoreGrade">–</div>
+          <div class="score-desc" id="scoreDesc">–</div>
+        </div>
+
+        <!-- SUB SCORES -->
+        <div class="sub-scores">
+          <div class="sub-card"><div class="sub-icon">💬</div><div class="sub-val" id="ss1">–</div><div class="sub-name">פתיחה</div></div>
+          <div class="sub-card"><div class="sub-icon">🎯</div><div class="sub-val" id="ss2">–</div><div class="sub-name">זיהוי צרכים</div></div>
+          <div class="sub-card"><div class="sub-icon">💡</div><div class="sub-val" id="ss3">–</div><div class="sub-name">הצגת פתרון</div></div>
+          <div class="sub-card"><div class="sub-icon">🤝</div><div class="sub-val" id="ss4">–</div><div class="sub-name">סגירה</div></div>
+        </div>
+
+        <!-- PROS / CONS -->
+        <div class="grid-2">
+          <div class="card"><div class="card-title"><span>✅</span> מה עבד טוב</div><ul class="plist" id="prosList"></ul></div>
+          <div class="card"><div class="card-title"><span>⚠️</span> מה לשפר</div><ul class="plist" id="consList"></ul></div>
+        </div>
+
+        <!-- MOMENTS -->
+        <div class="card"><div class="card-title"><span>⏱️</span> רגעים מרכזיים</div><div id="momentsList"></div></div>
+
+        <!-- TIPS -->
+        <div class="card"><div class="card-title"><span>🚀</span> המלצות לשיפור</div><div id="tipsList"></div></div>
+
+        <!-- TRANSCRIPT -->
+        <div class="card"><div class="card-title"><span>📝</span> תמלול השיחה</div><div class="transcript" id="transcriptBox"></div></div>
+
+        <div style="text-align:center"><button class="btn-reset" onclick="resetApp()">🔄 ניתוח שיחה חדשה</button></div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div id="tabHistory" style="display:none">
+      <div id="histContent"></div>
+    </div>
+
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">BIG Call Analytics · מערכת ניתוח שיחות מאת BYBR · Whisper + Claude AI</div>
+</footer>
+
+<script>
+const SURL = 'https://hwjstbjrczooeboocsyo.supabase.co';
+const SKEY = 'sb_publishable_Kk2MItj9E8U7azQv6S-tMA_uyPBcys3';
+const { createClient } = supabase;
+const sb = createClient(SURL, SKEY);
+let user = null, selFile = null;
+
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) { user = session.user; showApp(); }
+  else showLogin();
+  sb.auth.onAuthStateChange((e, s) => { if (s?.user) { user = s.user; showApp(); } else { user = null; showLogin(); } });
+}
+
+function showLogin() {
+  document.getElementById('loginPage').classList.add('visible');
+  document.getElementById('appPage').classList.remove('visible');
+  document.getElementById('headerActions').innerHTML = '';
+}
+
+function showApp() {
+  document.getElementById('loginPage').classList.remove('visible');
+  document.getElementById('appPage').classList.add('visible');
+  const init = user.email?.[0]?.toUpperCase() || '?';
+  document.getElementById('headerActions').innerHTML = `
+    <div class="chip"><div class="chip-avatar">${init}</div>${user.email}</div>
+    <button class="btn-sm btn-outline" onclick="logout()">יציאה</button>`;
+}
+
+async function loginWithGoogle() {
+  await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } });
+}
+async function logout() { await sb.auth.signOut(); }
+function goHome() { showTab('analyze'); resetApp(); }
+
+function showTab(t) {
+  document.querySelectorAll('.pill').forEach((p,i) => p.classList.toggle('active', (t==='analyze'&&i===0)||(t==='history'&&i===1)));
+  document.getElementById('tabAnalyze').style.display = t==='analyze' ? 'block' : 'none';
+  document.getElementById('tabHistory').style.display = t==='history' ? 'block' : 'none';
+  if (t==='history') loadHistory();
+}
+
+// UPLOAD
+const dz = document.getElementById('dropZone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('over'));
+dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('over'); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
+document.getElementById('audioFile').addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+
+function setFile(f) { selFile = f; document.getElementById('selFile').textContent = `✓ ${f.name} · ${(f.size/1024/1024).toFixed(1)} MB`; }
+function showErr(m) { const b=document.getElementById('errBox'); b.textContent='⚠️ '+m; b.style.display='block'; }
+function hideErr() { document.getElementById('errBox').style.display='none'; }
+function setProgress(pct, txt) {
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('progBar').style.width = pct+'%';
+  document.getElementById('progText').textContent = txt;
+}
+
+async function startAnalysis() {
+  hideErr();
+  if (!selFile) return showErr('נא לבחור קובץ אודיו');
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true; btn.innerHTML = 'מעבד... <span class="spin"></span>';
+  document.getElementById('results').style.display = 'none';
+  try {
+    setProgress(15, '🎙️ מתמלל את השיחה בעברית...');
+    const transcript = await transcribeAudio(selFile);
+    setProgress(52, '🧠 Claude מנתח את השיחה...');
+    const analysis = await analyzeCall(transcript);
+    setProgress(88, '💾 שומר להיסטוריה...');
+    await saveAnalysis(selFile.name, transcript, analysis);
+    setProgress(100, '✅ הניתוח הושלם!');
+    renderResults(analysis, transcript);
+    setTimeout(() => { document.getElementById('progressWrap').style.display='none'; }, 1500);
+  } catch(err) {
+    showErr(err.message);
+    document.getElementById('progressWrap').style.display = 'none';
+  } finally {
+    btn.disabled = false; btn.innerHTML = '🔍 נתח שיחת מכירה';
+  }
+}
+
+async function transcribeAudio(f) {
+  const fd = new FormData(); fd.append('file', f);
+  const r = await fetch('/api/transcribe', { method:'POST', body:fd });
+  if (!r.ok) { const e=await r.json().catch(()=>{}); throw new Error('שגיאת תמלול: '+(e?.error||r.status)); }
+  return r.text();
+}
+
+async function analyzeCall(transcript) {
+  const r = await fetch('/api/analyze', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({transcript}) });
+  if (!r.ok) { const e=await r.json().catch(()=>{}); throw new Error('שגיאת ניתוח: '+(e?.error||r.status)); }
+  return r.json();
+}
+
+async function saveAnalysis(fileName, transcript, result) {
+  if (!user) return;
+  await sb.from('analyses').insert({ user_id: user.id, file_name: fileName, transcript, result });
+}
+
+function scoreColor(s) { return s>=80?'#22d3a5':s>=60?'#f5c842':s>=40?'#fb923c':'#f25c7a'; }
+
+function renderResults(a, transcript) {
+  const c = scoreColor(a.overall_score);
+  const ring = document.getElementById('ringFill');
+  ring.style.stroke = c;
+  setTimeout(() => { ring.style.strokeDashoffset = 440*(1-a.overall_score/100); }, 80);
+  document.getElementById('scoreVal').textContent = a.overall_score;
+  document.getElementById('scoreVal').style.color = c;
+  document.getElementById('scoreGrade').textContent = a.score_label;
+  document.getElementById('scoreDesc').textContent = a.verdict;
+
+  const ss = a.sub_scores;
+  [['ss1',ss.opening],['ss2',ss.needs_finding],['ss3',ss.solution_presentation],['ss4',ss.closing]].forEach(([id,v])=>{
+    const el=document.getElementById(id); el.textContent=v+'/10'; el.style.color=scoreColor(v*10);
+  });
+
+  document.getElementById('prosList').innerHTML = a.pros.map(p=>`<li><span class="pdot pdot-green">✓</span><span>${p}</span></li>`).join('');
+  document.getElementById('consList').innerHTML = a.cons.map(c=>`<li><span class="pdot pdot-red">✕</span><span>${c}</span></li>`).join('');
+  document.getElementById('momentsList').innerHTML = (a.key_moments||[]).map(m=>`
+    <div class="moment ${m.type}">
+      <div class="moment-lbl">${m.type==='positive'?'▲ חיובי':'▼ לשיפור'} · ${m.label}</div>
+      <div>${m.description}</div>
+    </div>`).join('');
+  document.getElementById('tipsList').innerHTML = a.tips.map(t=>`
+    <div class="tip"><div class="tip-title">💡 ${t.title}</div>${t.body}</div>`).join('');
+  document.getElementById('transcriptBox').textContent = transcript;
+  document.getElementById('results').style.display = 'block';
+  document.getElementById('results').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function resetApp() {
+  selFile = null;
+  document.getElementById('audioFile').value = '';
+  document.getElementById('selFile').textContent = '';
+  document.getElementById('results').style.display = 'none';
+  hideErr();
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+async function loadHistory() {
+  const c = document.getElementById('histContent');
+  c.innerHTML = '<div style="text-align:center;padding:48px;color:var(--text3);font-family:var(--mono)">טוען...</div>';
+  const { data } = await sb.from('analyses').select('*').eq('user_id', user.id).order('created_at', { ascending:false });
+  if (!data?.length) {
+    c.innerHTML = `<div class="hist-empty"><div class="hist-empty-icon">📭</div><p>עוד אין שיחות מנותחות</p></div>`;
+    return;
+  }
+  c.innerHTML = `<div class="hist-grid">${data.map(item => {
+    const s = item.result?.overall_score || 0;
+    const col = scoreColor(s);
+    const d = new Date(item.created_at).toLocaleDateString('he-IL',{day:'numeric',month:'short',year:'numeric'});
+    return `<div class="hist-card" onclick="openItem('${item.id}')">
+      <div class="hist-info">
+        <div class="hist-name">🎙️ ${item.file_name||'שיחה'}</div>
+        <div class="hist-date">${d}</div>
+        <div class="hist-verdict">${item.result?.verdict||''}</div>
+      </div>
+      <div class="score-pill" style="background:${col}18;color:${col}">${s}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+async function openItem(id) {
+  const { data } = await sb.from('analyses').select('*').eq('id',id).single();
+  if (!data) return;
+  showTab('analyze');
+  renderResults(data.result, data.transcript);
+}
+
+init();
+</script>
+</body>
+</html>
