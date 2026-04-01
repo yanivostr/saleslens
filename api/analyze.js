@@ -1,10 +1,24 @@
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'Anthropic API key not configured' });
+  if (!apiKey) {
+    return res.status(500).json({ error: 'Anthropic API key not configured' });
+  }
+
   try {
     const { transcript } = req.body;
-    if (!transcript) return res.status(400).json({ error: 'Missing transcript' });
+    if (!transcript) {
+      return res.status(400).json({ error: 'Missing transcript' });
+    }
+
+    // 🔥 חיתוך כדי לא לעבור טוקנים
+    const shortTranscript = transcript.slice(0, 12000);
+
+    console.log("Transcript length:", shortTranscript.length);
+
     const prompt = `אתה מאמן מכירות מנוסה עם 20 שנה ניסיון. אתה עובד עבור מנהל צוות מכירות שרוצה לדעת מי הנציג הטוב ביותר שלו – לא מי הכי מוסרי, אלא מי מביא תוצאות.
 
 גישה מקצועית:
@@ -16,7 +30,7 @@ export default async function handler(req, res) {
 
 שיחה:
 """
-${transcript}
+${shortTranscript}
 """
 
 החזר JSON בלבד (ללא markdown):
@@ -40,14 +54,62 @@ ${transcript}
 }
 ציטוטים חייבים להגיע מהשיחה. אל תמציא רגעים.`;
 
+    // 🔥 timeout של 20 שניות
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    console.log("Sending request to Claude...");
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      }),
+      signal: controller.signal
     });
-    if (!response.ok) { const e = await response.json().catch(() => ({})); return res.status(response.status).json({ error: e?.error?.message || 'Claude error' }); }
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      const e = await response.json().catch(() => ({}));
+      console.error("Claude API error:", e);
+      return res.status(response.status).json({ error: e?.error?.message || 'Claude error' });
+    }
+
+    console.log("Claude response received");
+
     const data = await response.json();
+
     const text = data.content.map(b => b.text || '').join('');
-    res.status(200).json(JSON.parse(text.replace(/```json|```/g, '').trim()));
-  } catch (err) { res.status(500).json({ error: err.message }); }
+    const cleanText = text.replace(/```json|```/g, '').trim();
+
+    console.log("Raw AI response:", cleanText);
+
+    // 🔥 הגנה על JSON.parse
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanText);
+    } catch (e) {
+      console.error("JSON parse failed:", cleanText);
+      return res.status(500).json({
+        error: "Invalid AI response",
+        raw: cleanText
+      });
+    }
+
+    return res.status(200).json(parsed);
+
+  } catch (err) {
+    console.error("SERVER ERROR:", err);
+    return res.status(500).json({
+      error: err.message || "Server error"
+    });
+  }
 }
